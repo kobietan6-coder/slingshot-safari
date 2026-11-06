@@ -1,0 +1,57 @@
+name: Enable GitHub Pages
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/enable-pages.yml
+
+permissions:
+  contents: read
+  pages: write
+
+jobs:
+  enable:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enable Pages from main at repository root
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -u
+          api="https://api.github.com/repos/${GITHUB_REPOSITORY}"
+          body='{"build_type":"legacy","source":{"branch":"main","path":"/"}}'
+          code=$(curl -sS -o /tmp/pages.json -w "%{http_code}" -X POST "$api/pages" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -H "Content-Type: application/json" \
+            -d "$body" || echo "000")
+          echo "POST /pages -> $code"
+          cat /tmp/pages.json
+          echo
+          if [ "$code" = "409" ] || [ "$code" = "422" ]; then
+            put=$(curl -sS -o /tmp/pages-put.json -w "%{http_code}" -X PUT "$api/pages" \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              -H "Content-Type: application/json" \
+              -d "$body" || echo "000")
+            echo "PUT /pages -> $put"
+            cat /tmp/pages-put.json
+            echo
+          fi
+          meta=$(curl -sS -o /tmp/meta.json -w "%{http_code}" -X PATCH "$api" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -H "Content-Type: application/json" \
+            -d '{"description":"First-person slingshot hunting game in a 3D forest.","homepage":"https://kobietan6-coder.github.io/slingshot-safari/"}' || echo "000")
+          echo "PATCH repo -> $meta"
+          cat /tmp/meta.json
+          echo
+          if [ "$code" != "201" ] && [ "$code" != "409" ] && [ "${put:-}" != "200" ] && [ "${put:-}" != "201" ]; then
+            echo "Pages was not enabled."
+            exit 1
+          fi
