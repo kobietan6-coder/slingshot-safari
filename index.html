@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0e120f">
+<title>Slingshot Safari — Field Expedition</title>
+<meta name="description" content="A naturalist slingshot game: subdue, tag and document real species, level up solo or race a rival online.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230e120f'/%3E%3Cpath d='M32 56V34M32 34L18 12M32 34L46 12' stroke='%23c8a25a' stroke-width='6' stroke-linecap='round' fill='none'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<canvas id="stage" aria-label="Game field"></canvas>
+<canvas id="overlay" aria-hidden="true"></canvas>
+
+<!-- ============ HUD ============ -->
+<div id="hud" class="hidden">
+  <div class="hud-solo">
+    <div class="hud-block"><span class="k">Region</span><b id="h-region">—</b></div>
+    <div class="hud-block"><span class="k">Time</span><b id="h-time" class="mono">2:00</b></div>
+    <div class="hud-block"><span class="k">Records</span><b id="h-catches" class="mono">0</b></div>
+    <div class="hud-block"><span class="k">Score</span><b id="h-score" class="mono">0</b></div>
+    <div class="hud-block grow"><span class="k">Level <span id="h-lvl">1</span></span><div class="xpbar"><i id="h-xp"></i></div></div>
+  </div>
+  <div class="hud-vs">
+    <div class="plate me"><div class="pn"><span class="dot"></span><b id="v-me">You</b></div><div class="ps"><span class="mono big" id="v-me-pts">0</span><span class="k">pts</span><span class="mono" id="v-me-wins">0</span><span class="k">rds</span></div><div class="prog" id="v-me-prog"></div></div>
+    <div class="vs-mid"><div class="k" id="v-round">Round 1 / 5</div><div class="mono big" id="v-time">1:15</div><div class="k" id="v-ping"></div></div>
+    <div class="plate opp"><div class="pn"><b id="v-opp">Opponent</b><span class="dot"></span></div><div class="ps"><span class="mono big" id="v-opp-pts">0</span><span class="k">pts</span><span class="mono" id="v-opp-wins">0</span><span class="k">rds</span></div><div class="prog" id="v-opp-prog"></div></div>
+  </div>
+  <div id="target" class="target hidden"><span class="k">Objective</span><b id="t-title">—</b><small id="t-sub"></small></div>
+  <div id="chips"></div>
+  <div id="ammo" class="ammo">
+    <div class="am-cell"><span class="k">Sling</span><b id="am-state">Loaded</b></div>
+    <div class="am-cell"><span class="k">Pouch</span><b><span id="am-count" class="mono">24</span> <small class="muted">stones</small></b><div id="am-pips" class="pips"></div></div>
+    <button class="abtn" id="btn-reload" title="Reload (R)"><kbd>R</kbd><span>Reload</span></button>
+    <button class="abtn" id="btn-gather" title="Gather stones (E)"><kbd>E</kbd><span>Gather</span></button>
+  </div>
+  <div id="compass"><canvas id="compass-c" width="420" height="34"></canvas><i class="tick"></i></div>
+  <div id="minimap"><canvas id="minimap-c" width="168" height="168"></canvas></div>
+  <div id="crosshair"><i></i><svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18" id="ch-ring"/></svg></div>
+  <div id="prompt" class="prompt hidden"><kbd>E</kbd><span id="prompt-t"></span></div>
+  <div id="stance" class="stance hidden">Crouched · sneaking</div>
+  <div id="lockhint" class="lockhint hidden"><b>Click to take aim</b><span>Mouse looks around · <kbd>Esc</kbd> releases the cursor</span></div>
+  <div id="touch" class="touch hidden">
+    <div id="joy" class="joy"><i id="joy-k"></i></div>
+    <div class="tbtns">
+      <button id="t-fire" class="tb big">Draw<small>hold</small></button>
+      <button id="t-aim" class="tb">Aim</button>
+      <button id="t-reload" class="tb">R</button>
+      <button id="t-use" class="tb">E</button>
+      <button id="t-crouch" class="tb">Crouch</button>
+    </div>
+  </div>
+  <div class="hud-btns"><button class="icon-btn" id="btn-pause" title="Pause">❚❚</button></div>
+  <div id="feed"></div>
+</div>
+
+<!-- ============ SCREENS ============ -->
+<div id="ui">
+  <section class="screen" id="scr-menu">
+    <div class="menu-wrap">
+      <header class="brand">
+        <div class="eyebrow">Field Expedition · Est. 2026</div>
+        <h1>Slingshot <em>Safari</em></h1>
+        <p class="lede">Track, subdue and tag wildlife with a precision slingshot. Every animal is documented against the encyclopedia, then released.</p>
+      </header>
+      <div class="profile glass" id="profile-strip"></div>
+      <nav class="menu-grid">
+        <button class="mbtn primary" data-go="regions"><span>Solo Expedition</span><small>Level up, unlock regions and gear</small></button>
+        <button class="mbtn primary vs" data-go="vs"><span>VS Online</span><small>Race a rival to the right species</small></button>
+        <button class="mbtn" data-go="journal"><span>Field Journal</span><small id="journal-count">0 species</small></button>
+        <button class="mbtn" data-go="outfitter"><span>Outfitter</span><small>Slingshot upgrades</small></button>
+        <button class="mbtn" data-go="plugins"><span>Plugins</span><small>Weather, night, badges, sound…</small></button>
+        <button class="mbtn" data-go="howto"><span>Field Manual</span><small>How to play</small></button>
+        <button class="mbtn" data-go="settings"><span>Settings</span><small>Profile, audio, display</small></button>
+      </nav>
+      <div id="menu-notes"></div>
+      <footer class="foot">Species data and imagery: <a href="https://en.wikipedia.org" target="_blank" rel="noopener">Wikipedia</a> (CC BY-SA). Animals are stunned and tagged, never harmed.</footer>
+    </div>
+  </section>
+
+  <section class="screen panel-screen" id="scr-regions">
+    <div class="panel glass wide">
+      <div class="ph"><button class="back" data-go="menu">←</button><h2>Choose a survey region</h2></div>
+      <div id="region-list" class="region-list"></div>
+    </div>
+  </section>
+
+  <section class="screen panel-screen" id="scr-journal">
+    <div class="panel glass wide">
+      <div class="ph"><button class="back" data-go="menu">←</button><h2>Field Journal</h2><span class="muted" id="journal-progress"></span></div>
+      <div class="filters" id="journal-filters"></div>
+      <div id="journal-grid" class="jgrid"></div>
+    </div>
+  </section>
+
+  <section class="screen panel-screen" id="scr-outfitter">
+    <div class="panel glass">
+      <div class="ph"><button class="back" data-go="menu">←</button><h2>Outfitter</h2><span class="coins" id="of-coins"></span></div>
+      <div id="of-list"></div>
+      <p class="muted small">VS matches use a standard competition loadout for both players, so upgrades never decide a head-to-head.</p>
+    </div>
+  </section>
+
+  <section class="screen panel-screen" id="scr-plugins">
+    <div class="panel glass wide">
+      <div class="ph"><button class="back" data-go="menu">←</button><h2>Plugins</h2></div>
+      <p class="muted small">Plugins hook into the game through a small API. Toggle them here; gameplay plugins (marked <span class="tag">synced</span>) follow the host's settings in VS. See README.md to write your own.</p>
+      <div id="plugin-list"></div>
+    </div>
+  </section>
+
+  <section class="screen panel-screen" id="scr-howto">
+    <div class="panel glass">
+      <div class="ph"><button class="back" data-go="menu">←</button><h2>Field Manual</h2></div>
+      <div class="manual">
+        <h4>Moving through the forest</h4>
+        <p>Each region is a first-person, roamable forest with hills, dense trees, undergrowth, rocks and fog. <b>Click the view</b> to lock the cursor; the mouse turns where you face, and <b>W A S D</b> walk forward, back and strafe. <b>Esc</b> releases the cursor (and pauses a solo expedition). Animals notice you if you get close: <b>crouch</b> with <b>C</b> (toggle) or hold <b>Shift</b> to sneak — it shrinks your detection radius by more than half. Standing still also helps. Spooked animals bolt, birds take off and flocks follow.</p>
+        <h4>Aim and release</h4>
+        <p><b>Hold Space</b> (or the left mouse button) to draw the slingshot — the bands stretch and power builds over about a second (the ring around the crosshair fills). <b>Release</b> to fire. Stones fly in a real gravity arc, so hold over distant targets; wind and rain (Weather plugin) bend them. Hold the <b>right mouse button</b> to steady your aim and zoom. Holding a full draw for too long makes your aim waver. The crosshair turns amber when it is over an animal. Head shots count for more.</p>
+        <h4>Ammunition</h4>
+        <p>The sling holds one stone. After every shot it is empty until you press <b>R</b> to reload (about 0.6 s; faster with Outfitter upgrades). Your belt pouch starts with 24 stones per expedition and refills to 20 at the start of every VS round. Stone piles lie around the forest (often near rocks, shown on the minimap) and stones you fire land where they fall — walk over and press <b>E</b> to gather them. The HUD shows whether the sling is loaded and how many stones are left.</p>
+        <h4>Subdue, tag, document</h4>
+        <p>Each animal has a stamina rating. Hits wear it down; at zero the animal is <b>stunned</b> — it drops with stars circling its head, and appears on the minimap. Walk up to it and press <b>E</b> to tag it before it recovers (about 45 s). You then get a field record — sex, individual weight, taxonomy, conservation status and an encyclopedia entry — and the animal is released.</p>
+        <h4>Solo expeditions</h4>
+        <p>Four-minute surveys. Records earn XP and field credits. Levels unlock new regions (Rainforest at 3, Mangrove at 5, Highlands at 8), raise the odds of rare species, and open higher tiers at the Outfitter.</p>
+        <h4>VS Online</h4>
+        <p>One player hosts a room and shares the code or link. Each round the site issues an objective — a species, a sex, a weight class. Both players see identical wildlife. First to complete the objective takes the round (+3). Documenting the wrong animal costs 1 point. Best of 3, 5 or 7.</p>
+        <h4>Controls</h4>
+        <table class="tbl keys">
+          <tr><td><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd></td><td>Walk forward · strafe left · back · strafe right (arrow keys also work)</td></tr>
+          <tr><td><kbd>Mouse</kbd></td><td>Look / turn (click the view to lock the cursor, <kbd>Esc</kbd> to release)</td></tr>
+          <tr><td><kbd>Space</kbd> hold / release</td><td>Draw the slingshot and build power / fire</td></tr>
+          <tr><td><kbd>Left mouse</kbd> hold / release</td><td>Alternative draw and fire</td></tr>
+          <tr><td><kbd>Right mouse</kbd> hold</td><td>Steady aim and zoom</td></tr>
+          <tr><td><kbd>C</kbd> / hold <kbd>Shift</kbd></td><td>Crouch and sneak (toggle / hold)</td></tr>
+          <tr><td><kbd>R</kbd></td><td>Reload a stone into the pouch</td></tr>
+          <tr><td><kbd>E</kbd></td><td>Tag a stunned animal · gather a stone pile</td></tr>
+          <tr><td><kbd>P</kbd> / <kbd>Esc</kbd></td><td>Pause solo expedition · close a record card</td></tr>
+        </table>
+        <p class="muted small">Touch screens: the left thumb-stick walks, drag anywhere on the right to look, hold <b>Draw</b> and let go to fire, <b>Aim</b> toggles zoom, plus <b>R</b> reload, <b>E</b> tag/gather and <b>Crouch</b>. Auto-reload can be switched on in Settings. Landscape orientation recommended on phones.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="screen panel-screen" id="scr-settings">
+    <div class="panel glass">
+      <div class="ph"><button class="back" data-go="menu">←</button><h2>Settings</h2></div>
+      <div class="form">
+        <label>Ranger name <input id="set-name" maxlength="20"></label>
+        <label>Volume <input id="set-vol" type="range" min="0" max="1" step="0.05"></label>
+        <label class="row"><input id="set-traj" type="checkbox"> Show trajectory preview</label>
+        <label class="row"><input id="set-auto" type="checkbox"> Auto-reload after each shot (handy on touch screens)</label>
+        <label>Mouse sensitivity <input id="set-sens" type="range" min="0.3" max="2.5" step="0.05"></label>
+        <label class="row"><input id="set-motion" type="checkbox"> Reduced motion (less head bob)</label>
+        <label>Render quality <select id="set-quality"><option value="high">High</option><option value="low">Battery saver</option></select></label>
+        <div class="btnrow"><button class="btn ghost danger" id="set-reset">Reset all progress</button></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="screen panel-screen" id="scr-vs">
+    <div class="panel glass">
+      <div class="ph"><button class="back" id="vs-back">←</button><h2>VS Online</h2></div>
+      <div class="tabs"><button class="tab on" data-tab="host">Host a room</button><button class="tab" data-tab="join">Join a room</button></div>
+      <div class="tabpane" id="vs-host">
+        <div class="form">
+          <label>Match length <select id="vs-rounds"><option value="3">Best of 3</option><option value="5" selected>Best of 5</option><option value="7">Best of 7</option></select></label>
+          <div id="vs-rules" class="small muted"></div>
+        </div>
+        <div class="btnrow"><button class="btn primary" id="vs-create">Open room</button></div>
+        <div id="vs-room" class="room hidden">
+          <span class="k">Room code</span><div class="code mono" id="vs-code">—</div>
+          <div class="btnrow"><button class="btn" id="vs-copy">Copy challenge link</button><button class="btn ghost" id="vs-share">Share…</button></div>
+          <input id="vs-link" class="mono linkbox" readonly>
+        </div>
+      </div>
+      <div class="tabpane hidden" id="vs-join">
+        <div class="form"><label>Room code <input id="vs-joincode" class="mono codein" maxlength="5" autocomplete="off" placeholder="ABCDE"></label></div>
+        <div class="btnrow"><button class="btn primary" id="vs-joinbtn">Join</button></div>
+      </div>
+      <div class="lobby">
+        <div class="lp"><span class="dot me"></span><b id="lb-me"></b><span class="muted" id="lb-me-l"></span></div>
+        <div class="lp"><span class="dot opp"></span><b id="lb-opp" class="muted">Waiting…</b><span class="muted" id="lb-opp-l"></span></div>
+      </div>
+      <div id="vs-status" class="status muted">Not connected.</div>
+      <div class="btnrow"><button class="btn primary hidden" id="vs-start">Start match</button></div>
+    </div>
+  </section>
+
+  <section class="screen panel-screen" id="scr-summary">
+    <div class="panel glass" id="summary-body"></div>
+  </section>
+</div>
+
+<!-- ============ OVERLAYS ============ -->
+<div id="card-wrap" class="modal hidden"><article id="card" class="card"></article></div>
+<div id="mini-card" class="mini hidden"></div>
+<div id="center-msg" class="center-msg hidden"></div>
+<div id="pause" class="modal hidden"><div class="panel glass narrow"><h2>Paused</h2><div class="btnrow col"><button class="btn primary" id="p-resume">Resume</button><button class="btn" id="p-quit">End expedition</button></div></div></div>
+<div id="toasts"></div>
+<div id="rotate" class="rotate">Rotate to landscape for the best field of view.</div>
+
+<script src="js/vendor/peerjs.min.js"></script>
+<script>window.Peer || document.write('<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"><\/script>')</script>
+<script src="js/wiki-fallback.js"></script>
+<script src="js/species.js"></script>
+<script src="js/core.js"></script>
+<script src="js/art.js"></script>
+<script src="js/plugins.js"></script>
+<script src="js/vendor/three.min.js"></script>
+<script src="js/world3d.js"></script>
+<script src="js/models3d.js"></script>
+<script src="js/game3d.js"></script>
+<script src="js/vs.js"></script>
+<script src="js/plugins-builtin.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
