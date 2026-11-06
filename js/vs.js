@@ -5,7 +5,7 @@
 (function () {
   const DB = SpeciesDB;
   const PREFIX = 'slingshot-safari-v1-';
-  const ROUND_TIME = 150;
+  const ROUND_TIME = 240;
   const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
   // ---------- targets ----------

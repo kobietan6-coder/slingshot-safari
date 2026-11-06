@@ -167,15 +167,15 @@
     App.game.idle(regionId);
     showHud('solo'); $('#h-region').textContent = r.name;
     updateSoloHud();
-    centerMsg(`<div class="cm-k">Expedition</div><div class="cm-t">${r.name}</div><div class="cm-s">Four minutes in the forest. Stalk, subdue and tag as many animals as you can.<br><span class="muted">WASD move · mouse look · hold Space to draw · C crouch</span></div>`);
+    centerMsg(`<div class="cm-k">Expedition</div><div class="cm-t">${r.name}</div><div class="cm-s">Eight minutes in the forest. Stalk, subdue and tag as many animals as you can.<br><span class="muted">WASD move · mouse look · hold Space to draw · C crouch</span></div>`);
     const dailyP = Plugins.byId.daily;
     if (Plugins.enabled('daily') && dailyP) { const d = dailyP.target(); if (d.sp.region === regionId && Plugins.data('daily').done !== d.day) { $('#target').classList.remove('hidden'); $('#t-title').textContent = 'Daily: ' + d.sp.name; $('#t-sub').textContent = d.sp.sci + ' · +100 XP'; } }
-    setTimeout(() => { centerMsg(null); App.game.startSolo(regionId, 240); }, 1800);
+    setTimeout(() => { centerMsg(null); App.game.startSolo(regionId, 480); }, 1800);
   }
   function fmtTime(s) { s = Math.max(0, Math.ceil(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
   function updateSoloHud() {
     const g = App.game, L = levelInfo();
-    $('#h-time').textContent = fmtTime(g.mode === 'solo' ? g.duration - g.clock : 240);
+    $('#h-time').textContent = fmtTime(g.mode === 'solo' ? g.duration - g.clock : 480);
     $('#h-catches').textContent = g.session ? g.session.catches.length : 0;
     $('#h-score').textContent = g.session ? g.session.score : 0;
     $('#h-lvl').textContent = L.level; $('#h-xp').style.width = (100 * L.into / L.need) + '%';

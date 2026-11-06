@@ -9,6 +9,55 @@
     highlands: { amp: 13, off: 0, fog: [30, 230], trees: 460, groves: 0, bushes: 360, grass: 7000, rocks: 320, tree: 'pine', grassCol: '#7a6a3e' },
   };
   const col = (h, v) => { const c = new T.Color(h); if (v) c.offsetHSL(0, 0, v); return c; };
+  function paint(g, fn) {
+    const pos = g.attributes.position, cols = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) fn(i, pos, cols);
+    g.setAttribute('color', new T.BufferAttribute(cols, 3)); g.computeVertexNormals(); return g;
+  }
+  function barkGeo() {
+    const g = new T.CylinderGeometry(0.55, 1, 1, 8, 6, false); g.translate(0, 0.5, 0);
+    return paint(g, (i, pos, cols) => {
+      let x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i), ang = Math.atan2(z, x);
+      const ridge = 0.045 * Math.sin(ang * 7 + y * 18) + 0.02 * Math.sin(ang * 3 - y * 8);
+      const rad = Math.hypot(x, z) || 1, k = (rad + ridge) / rad;
+      pos.setX(i, x * k); pos.setZ(i, z * k);
+      const crease = 0.76 + 0.24 * Math.sin(ang * 7 + y * 18);
+      cols[i * 3] = crease; cols[i * 3 + 1] = crease * 0.9; cols[i * 3 + 2] = crease * 0.7;
+    });
+  }
+  function branchGeo() {
+    const pts = [];
+    for (let i = 0; i <= 5; i++) { const t = i / 5; pts.push(new T.Vector3(Math.sin(t * Math.PI) * 0.14, t, 0)); }
+    const g = new T.TubeGeometry(new T.CatmullRomCurve3(pts), 5, 0.07, 5, false);
+    return paint(g, (i, pos, cols) => {
+      const c = 0.78 + 0.18 * pos.getY(i);
+      cols[i * 3] = c; cols[i * 3 + 1] = c * 0.88; cols[i * 3 + 2] = c * 0.68;
+    });
+  }
+  function clumpGeo() {
+    const g = new T.IcosahedronGeometry(1, 1);
+    return paint(g, (i, pos, cols) => {
+      let x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+      const lump = 0.84 + 0.18 * Math.sin(x * 3.2 + z * 2.2) * Math.cos(y * 2.7 + x);
+      pos.setXYZ(i, x * lump, y * lump * 0.72, z * lump);
+      const shade = 0.7 + 0.4 * (y * 0.5 + 0.5);
+      cols[i * 3] = shade * 0.9; cols[i * 3 + 1] = shade; cols[i * 3 + 2] = shade * 0.76;
+    });
+  }
+  function pineGeo() {
+    const g = new T.ConeGeometry(1, 1, 12, 4); g.translate(0, 0.5, 0);
+    return paint(g, (i, pos, cols) => {
+      let x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i), ang = Math.atan2(z, x);
+      if (y < 0.62) {
+        const rad = Math.hypot(x, z);
+        y -= (0.62 - y) * 0.55;
+        if (rad > 0.02) { const nr = rad * (1 + 0.1 * Math.sin(ang * 6)); x = x / rad * nr; z = z / rad * nr; }
+      }
+      pos.setXYZ(i, x, y, z);
+      const shade = 0.66 + 0.42 * Math.max(0, y);
+      cols[i * 3] = shade * 0.84; cols[i * 3 + 1] = shade; cols[i * 3 + 2] = shade * 0.7;
+    });
+  }
 
   class World {
     constructor(scene, regionId, night) {
@@ -84,7 +133,7 @@
     }
     okSpot(x, z, clear) {
       const rr = Math.hypot(x, z); if (rr > EDGE - 4) return false;
-      if (clear && rr < 9) return false;
+      if (clear && rr < (this.id === 'meadow' ? 16 : 9)) return false;
       if (this.st.water && this.h(x, z) < (this.st.tree === 'mangrove' ? -0.6 : 0.2)) return false;
       return true;
     }
@@ -102,16 +151,29 @@
       const st = this.st, P = this.palette(), dark = this.night ? -0.28 : 0;
       const m4 = new T.Matrix4(), q = new T.Quaternion(), s = new T.Vector3(), p = new T.Vector3(), e = new T.Euler();
       const place = (inst, i, x, y, z, sx, sy, sz, ry, rx, rz) => { e.set(rx || 0, ry || 0, rz || 0); q.setFromEuler(e); m4.compose(p.set(x, y, z), q, s.set(sx, sy, sz)); inst.setMatrixAt(i, m4); };
-      const N = st.trees;
-      const trunkG = new T.CylinderGeometry(0.7, 1, 1, 6); trunkG.translate(0, 0.5, 0);
-      const crownG = new T.IcosahedronGeometry(1, 0), coneG = new T.ConeGeometry(1, 1, 7); coneG.translate(0, 0.5, 0);
-      const trunkM = new T.MeshLambertMaterial({ color: col(st.tree === 'pine' ? '#4a3a2c' : st.tree === 'tropical' ? '#5a5244' : '#4d3d2e', dark), flatShading: true });
-      const leafM = new T.MeshLambertMaterial({ color: 0xffffff, flatShading: true });
-      const crownsPer = st.tree === 'pine' ? 3 : st.tree === 'tropical' ? 3 : 2;
-      const trunks = new T.InstancedMesh(trunkG, trunkM, N * (st.tree === 'mangrove' ? 4 : 1));
-      const crowns = new T.InstancedMesh(st.tree === 'pine' ? coneG : crownG, leafM, N * crownsPer);
-      const leafBase = { broad: '#3f5a32', tropical: '#2a4a2a', mangrove: '#34503a', pine: '#2f4232' }[st.tree];
-      let ti = 0, ci = 0, placed = 0, tries = 0;
+      const N = st.trees, kind = st.tree;
+      const trunkG = barkGeo(), limbG = branchGeo(), leafG = clumpGeo(), tierG = kind === 'pine' ? pineGeo() : leafG;
+      const barkMat = new T.MeshLambertMaterial({ vertexColors: true });
+      const leafMat = new T.MeshLambertMaterial({ vertexColors: true });
+      const trunkMax = N * (kind === 'mangrove' ? 7 : 1), limbMax = N * 6, leafMax = N * (kind === 'pine' ? 2 : 8), tierMax = kind === 'pine' ? N * 5 : 1;
+      const trunks = new T.InstancedMesh(trunkG, barkMat, trunkMax);
+      const limbs = new T.InstancedMesh(limbG, barkMat, limbMax);
+      const crowns = new T.InstancedMesh(leafG, leafMat, Math.max(2, leafMax));
+      const tiers = new T.InstancedMesh(tierG, leafMat, tierMax);
+      const leafBase = { broad: '#3e6a34', tropical: '#1f4a28', mangrove: '#2c5a3c', pine: '#2a4a30' }[kind];
+      const barkOf = () => { const c = col(kind === 'pine' ? '#5c4634' : kind === 'tropical' ? '#6d5b44' : kind === 'mangrove' ? '#5e4b38' : '#6a5140'); c.offsetHSL((r() - 0.5) * 0.02, (r() - 0.5) * 0.05, (r() - 0.5) * 0.1 + dark); return c; };
+      const leafOf = (lift) => { const c = col(leafBase); c.offsetHSL((r() - 0.5) * 0.04, (r() - 0.5) * 0.12, (r() - 0.5) * 0.1 + dark + (lift || 0)); return c; };
+      let ti = 0, li = 0, ci = 0, pi = 0;
+      const putTrunk = (x, y, z, sx, sy, sz, rx, ry) => { if (ti >= trunkMax) return; place(trunks, ti, x, y, z, sx, sy, sz, ry || 0, rx || 0, 0); trunks.setColorAt(ti++, barkOf()); };
+      const putLimb = (x, y, z, yaw, elev, len, thick) => {
+        if (li >= limbMax) return null;
+        place(limbs, li, x, y, z, thick / 0.07, len, thick / 0.07, yaw, Math.PI / 2 - elev, 0); limbs.setColorAt(li++, barkOf());
+        const ce = Math.cos(elev);
+        return [x + Math.sin(yaw) * ce * len, y + Math.sin(elev) * len, z + Math.cos(yaw) * ce * len];
+      };
+      const putLeaf = (x, y, z, sx, sy, sz, lift) => { if (ci >= leafMax) return; place(crowns, ci, x, y, z, sx, sy, sz, r() * 6.28); crowns.setColorAt(ci++, leafOf(lift)); };
+      const putTier = (x, y, z, rad, hgt) => { if (pi >= tierMax) return; place(tiers, pi, x, y, z, rad, hgt, rad, r() * 3); tiers.setColorAt(pi++, leafOf(0.02)); };
+      let placed = 0, tries = 0;
       const groves = Array.from({ length: st.groves }, () => [(r() - 0.5) * 260, (r() - 0.5) * 260]);
       while (placed < N && tries < N * 6) {
         tries++;
@@ -120,35 +182,61 @@
         else { x = (r() - 0.5) * 2 * EDGE; z = (r() - 0.5) * 2 * EDGE; }
         if (!this.okSpot(x, z, true)) continue;
         const y = this.h(x, z); placed++;
-        const c = col(leafBase); c.offsetHSL((r() - 0.5) * 0.04, (r() - 0.5) * 0.1, (r() - 0.5) * 0.08 + dark);
-        if (st.tree === 'pine') {
-          const H = 9 + r() * 10, R = 2 + r() * 1.5;
-          place(trunks, ti++, x, y - 0.3, z, 0.35, H * 0.5, 0.35, r() * 3);
-          for (let k = 0; k < 3; k++) { place(crowns, ci, x, y + H * (0.22 + k * 0.22), z, R * (1 - k * 0.25), H * 0.42, R * (1 - k * 0.25), r() * 3); crowns.setColorAt(ci++, c); }
-          this.addTrunk(x, z, 0.45, H); this.perches.push(new T.Vector3(x, y + H * 0.95, z));
-        } else if (st.tree === 'tropical') {
-          const emergent = r() < 0.22, H = emergent ? 20 + r() * 10 : 8 + r() * 7, R = emergent ? 6 + r() * 3 : 3 + r() * 2, tw = emergent ? 0.7 : 0.4;
-          place(trunks, ti++, x, y - 0.3, z, tw, H, tw, r() * 3);
-          for (let k = 0; k < 3; k++) { const a = r() * 6.28, d = R * 0.4; place(crowns, ci, x + Math.cos(a) * d, y + H - R * 0.2 + (r() - 0.5) * 1.5, z + Math.sin(a) * d, R * (0.7 + r() * 0.3), R * 0.38, R * (0.7 + r() * 0.3), r() * 3); crowns.setColorAt(ci++, c); }
-          this.addTrunk(x, z, tw * 1.05, H); this.perches.push(new T.Vector3(x, y + H + R * 0.2, z));
-        } else if (st.tree === 'mangrove') {
-          const H = 4 + r() * 4, R = 2.2 + r() * 1.6;
-          for (let k = 0; k < 4; k++) { const a = k * 1.57 + r() * 0.5; place(trunks, ti++, x + Math.cos(a) * 0.9, y - 0.4, z + Math.sin(a) * 0.9, 0.12, H * 0.55, 0.12, 0, Math.sin(a) * 0.5, -Math.cos(a) * 0.5); }
-          place(crowns, ci, x, y + H, z, R, R * 0.75, R, r() * 3); crowns.setColorAt(ci++, c);
-          place(crowns, ci, x + (r() - 0.5) * 2, y + H + 0.6, z + (r() - 0.5) * 2, R * 0.7, R * 0.6, R * 0.7, r() * 3); crowns.setColorAt(ci++, c);
-          this.addTrunk(x, z, 1.0, H); this.perches.push(new T.Vector3(x, y + H + R * 0.7, z));
+        if (kind === 'pine') {
+          const H = 10 + r() * 9, base = 0.18 + r() * 0.08;
+          putTrunk(x, y - 0.2, z, base, H, base);
+          for (let k = 0; k < 5; k++) { const t = k / 4; putTier(x, y + H * (0.3 + t * 0.56), z, (2.3 + r() * 0.7) * (1 - t * 0.7), H * 0.2); }
+          for (let k = 0; k < 5; k++) putLimb(x, y + H * 0.32, z, k / 5 * 6.283 + r() * 0.2, -0.2, 1.2 + r() * 0.5, 0.04);
+          this.addTrunk(x, z, base * 1.4, H); this.perches.push(new T.Vector3(x, y + H * 0.97, z));
+        } else if (kind === 'tropical') {
+          const emergent = r() < 0.2, H = emergent ? 16 + r() * 12 : 7 + r() * 5.5, base = emergent ? 0.48 + r() * 0.2 : 0.26 + r() * 0.1;
+          putTrunk(x, y - 0.25, z, base, H, base);
+          const spread = emergent ? 3.4 + r() * 2 : 1.7 + r() * 1.1, crownY = y + H * (emergent ? 0.9 : 0.84);
+          putLeaf(x, crownY, z, spread * 0.85, spread * 0.32, spread * 0.85, 0.06);
+          for (let k = 0; k < 5; k++) {
+            const yaw = k / 5 * 6.283 + r() * 0.3, len = spread * (0.65 + r() * 0.3);
+            const end = putLimb(x, y + H * 0.76, z, yaw, 0.22 + r() * 0.18, len, emergent ? 0.08 : 0.055);
+            if (end) putLeaf(end[0], end[1] + 0.25, end[2], spread * 0.5, spread * 0.24, spread * 0.5, 0.02);
+          }
+          this.addTrunk(x, z, base * 1.15, H); this.perches.push(new T.Vector3(x, crownY + spread * 0.3, z));
+        } else if (kind === 'mangrove') {
+          const H = 4.2 + r() * 3.2, join = H * 0.5;
+          for (let k = 0; k < 5; k++) {
+            const a = k / 5 * 6.283 + r() * 0.2, foot = 1.15 + r() * 0.85;
+            const fx = x + Math.cos(a) * foot, fz = z + Math.sin(a) * foot, dx = x - fx, dz = z - fz;
+            const len = Math.hypot(dx, join, dz);
+            putTrunk(fx, y - 0.1, fz, 0.065 + r() * 0.02, len, 0.065, Math.PI / 2 - Math.atan2(join, Math.hypot(dx, dz)), Math.atan2(dx, dz));
+          }
+          putTrunk(x, y + join * 0.85, z, 0.14 + r() * 0.04, H * 0.58, 0.14);
+          const top = y + H * 0.95;
+          putLeaf(x, top, z, 1.6 + r() * 0.7, 0.95 + r() * 0.3, 1.6 + r() * 0.5, 0);
+          putLeaf(x + (r() - 0.5) * 0.8, top + 0.45, z + (r() - 0.5) * 0.8, 1.15, 0.7, 1.15, 0.05);
+          this.addTrunk(x, z, 1.2, H); this.perches.push(new T.Vector3(x, top + 1.15, z));
         } else {
-          const H = 5 + r() * 6, R = 2.4 + r() * 2;
-          place(trunks, ti++, x, y - 0.3, z, 0.35, H, 0.35, r() * 3);
-          place(crowns, ci, x, y + H, z, R, R * 0.85, R, r() * 3); crowns.setColorAt(ci++, c);
-          place(crowns, ci, x + (r() - 0.5) * R, y + H - R * 0.4, z + (r() - 0.5) * R, R * 0.7, R * 0.6, R * 0.7, r() * 3); crowns.setColorAt(ci++, c);
-          this.addTrunk(x, z, 0.45, H); this.perches.push(new T.Vector3(x, y + H + R * 0.8, z));
+          const H = 5.2 + r() * 6, base = 0.24 + r() * 0.16;
+          putTrunk(x, y - 0.15, z, base, H, base);
+          const nB = 4 + (r() < 0.45 ? 1 : 0);
+          for (let k = 0; k < nB; k++) {
+            const yaw = k / nB * 6.283 + r() * 0.45, elev = 0.32 + r() * 0.4, len = 1.4 + r() * 2;
+            const end = putLimb(x, y + H * (0.48 + r() * 0.28), z, yaw, elev, len, 0.055 + r() * 0.03);
+            if (end) putLeaf(end[0], end[1], end[2], 1.05 + r() * 0.75, 0.7 + r() * 0.35, 1.05 + r() * 0.6, 0.03);
+          }
+          putLeaf(x, y + H * 0.9, z, 1.45 + r() * 0.7, 1.0 + r() * 0.35, 1.45 + r() * 0.6, 0.08);
+          putLeaf(x, y + H * 0.68, z, 1.15 + r() * 0.4, 0.65, 1.15, -0.05);
+          this.addTrunk(x, z, base * 1.15, H); this.perches.push(new T.Vector3(x, y + H * 1.12, z));
         }
       }
-      trunks.count = ti; crowns.count = ci; crowns.instanceColor.needsUpdate = true;
-      this.root.add(trunks, crowns);
+      trunks.count = ti; limbs.count = li; crowns.count = ci; tiers.count = pi;
+      if (ti && trunks.instanceColor) trunks.instanceColor.needsUpdate = true;
+      if (li && limbs.instanceColor) limbs.instanceColor.needsUpdate = true;
+      if (ci && crowns.instanceColor) crowns.instanceColor.needsUpdate = true;
+      if (pi && tiers.instanceColor) tiers.instanceColor.needsUpdate = true;
+      if (ti) this.root.add(trunks);
+      if (li) this.root.add(limbs);
+      if (ci) this.root.add(crowns);
+      if (pi) this.root.add(tiers);
       // bushes
-      const bushes = new T.InstancedMesh(crownG, new T.MeshLambertMaterial({ color: 0xffffff, flatShading: true }), st.bushes);
+      const bushes = new T.InstancedMesh(leafG, leafMat, st.bushes);
       let bi = 0;
       for (let i = 0; i < st.bushes; i++) {
         const x = (r() - 0.5) * 2 * EDGE, z = (r() - 0.5) * 2 * EDGE; if (!this.okSpot(x, z, false) || Math.hypot(x, z) < 4) continue;

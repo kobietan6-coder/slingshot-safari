@@ -282,6 +282,7 @@
       this.ensureWorld(this.region.id); this.clearWorld(); this.removeAvatar();
       this.pool = DB.inRegion(this.region.id); this.weightFn = null; this.spawnT = 0;
       for (let i = 0; i < 10; i++) this.spawnSolo(18, 45);
+      if (this.region.id === 'meadow') this.seedMeadowMammals();
     }
     startSolo(regionId, duration) {
       const prof = Core.profile;
@@ -289,7 +290,7 @@
       this.setRegion(regionId); this.loadout = Core.loadoutStats(prof.upgrades);
       const lvl = Core.levelFromXp(prof.xp).level;
       this.pool = DB.inRegion(regionId); this.envRng = Math.random;
-      this.spawnIdx = 0; this.spawnT = 0; this.clock = 0; this.duration = duration || 240;
+      this.spawnIdx = 0; this.spawnT = 0; this.clock = 0; this.duration = duration || 480;
       this.session = { score: 0, catches: [], shots: 0, hits: 0, streak: 0, bestStreak: 0, region: regionId, level: lvl };
       this.weightFn = s => {
         let w = DB.RARITY[s.rarity].weight;
@@ -300,13 +301,14 @@
       this.ensureWorld(regionId); this.clearWorld(); this.removeAvatar();
       this.placePlayer(0, 0, Math.random() * TAU, true); this.resetAmmo(24);
       for (let i = 0; i < 14; i++) this.spawnSolo(25, 90);
+      if (regionId === 'meadow') this.seedMeadowMammals();
     }
     startVsRound(cfg) {
       this.mode = 'vs'; this.live = true; this.paused = false; this.rules = cfg.rules || {};
       this.setRegion(cfg.region); this.loadout = Core.loadoutStats(Core.VS_LOADOUT);
       this.pool = DB.inRegion(cfg.region); this.vs = cfg;
       this.envRng = Core.mulberry32(Core.hash(cfg.seed, cfg.round, 77));
-      this.spawnIdx = 0; this.spawnT = 0; this.clock = 0; this.duration = cfg.duration || 150;
+      this.spawnIdx = 0; this.spawnT = 0; this.clock = 0; this.duration = cfg.duration || 240;
       this.session = { score: 0, catches: [], shots: 0, hits: 0, streak: 0, bestStreak: 0 };
       this.weightFn = s => Plugins.reduce('modifySpawnWeight', DB.RARITY[s.rarity].weight + 8, { sp: s, game: this });
       this.resetEnv(); Plugins.emit('onRoundStart', { game: this, round: cfg.round, target: cfg.target });
@@ -321,11 +323,53 @@
     endLive() { this.live = false; this.draw = null; this.steady = false; }
 
     // ---------------- spawning ----------------
-    spawnSolo(rMin, rMax) {
-      const s = genSpawn(Math.random, this.pool, { weightFn: this.weightFn || (sp => DB.RARITY[sp.rarity].weight) });
-      const P = this.mode === 'ambient' ? new T.Vector3() : this.player.pos;
-      const a = Math.random() * TAU, d = rMin + Math.random() * (rMax - rMin);
-      const x = clampR(P.x + Math.cos(a) * d, P.z + Math.sin(a) * d);
+    spawnSpecies(id, xz) {
+      const sp = DB.byId[id];
+      const s = { sp, ind: DB.makeIndividual(sp, Math.random), seed: Math.floor(Math.random() * 4294967296) };
+      return this.spawnFrom(s, this.spawnIdx++, xz);
+    }
+    // Prefer grass with few trunks, a few metres from the player, so meadow mammals are visible.
+    openSpot(minD, maxD) {
+      const P = this.player.pos;
+      let best = null, bestScore = Infinity;
+      for (let i = 0; i < 16; i++) {
+        const ang = Math.random() * TAU, d = minD + Math.random() * (maxD - minD);
+        const xz = clampR(P.x + Math.cos(ang) * d, P.z + Math.sin(ang) * d);
+        let crowd = 0;
+        if (this.world) for (const t of this.world.trunksNear(xz[0], xz[1])) {
+          const dd = Math.hypot(t.x - xz[0], t.z - xz[1]);
+          if (dd < 8) crowd += 8 - dd;
+        }
+        if (Math.hypot(xz[0] - P.x, xz[1] - P.z) < 4.5) crowd += 30;
+        if (crowd < bestScore) { bestScore = crowd; best = xz; }
+      }
+      return best;
+    }
+    seedMeadowMammals() {
+      const plan = [['eu_rabbit', 4, 6, 14], ['plantain_squirrel', 3, 7, 16], ['red_fox', 1, 11, 22]];
+      for (const [id, n, a, b] of plan) for (let i = 0; i < n; i++) this.spawnSpecies(id, this.openSpot(a, b));
+      this.meadowFoxT = this.t;
+    }
+    meadowFill() {
+      if (this.region.id !== 'meadow' || this.mode === 'vs') return null;
+      const n = id => this.animals.filter(a => !a.removed && a.sp.id === id).length;
+      if (n('eu_rabbit') < 3) return 'eu_rabbit';
+      if (n('plantain_squirrel') < 2) return 'plantain_squirrel';
+      if (n('red_fox') < 1 && this.t - (this.meadowFoxT || 0) > 45) return 'red_fox';
+      return null;
+    }
+    spawnSolo(rMin, rMax, speciesId) {
+      const s = speciesId
+        ? { sp: DB.byId[speciesId], ind: DB.makeIndividual(DB.byId[speciesId], Math.random), seed: Math.floor(Math.random() * 4294967296) }
+        : genSpawn(Math.random, this.pool, { weightFn: this.weightFn || (sp => DB.RARITY[sp.rarity].weight) });
+      let x;
+      if (this.region.id === 'meadow' && s.sp.cls !== 'Bird') x = this.openSpot(6, 20);
+      else {
+        const P = this.mode === 'ambient' ? new T.Vector3() : this.player.pos;
+        const a = Math.random() * TAU, d = rMin + Math.random() * (rMax - rMin);
+        x = clampR(P.x + Math.cos(a) * d, P.z + Math.sin(a) * d);
+      }
+      if (s.sp.id === 'red_fox') this.meadowFoxT = this.t;
       const lead = this.spawnFrom(s, this.spawnIdx++, x);
       if (lead && FLOCK.has(s.sp.id) && this.mode !== 'vs') {
         const n = 1 + Math.floor(Math.random() * 3);
@@ -372,8 +416,12 @@
         while (this.clock >= 22 * 0 + (this.spawnIdx - 21) * 5) { if (this.animals.length < 34) this.spawnFrom(this.vsSpawnAt(this.spawnIdx), this.spawnIdx); this.spawnIdx++; }
         return;
       }
-      const cap = this.mode === 'ambient' ? 12 : 18;
-      if (this.spawnT <= 0) { this.spawnT = 1.6; if (this.animals.filter(a => a.state !== 'stunned').length < cap) this.spawnSolo(this.mode === 'ambient' ? 15 : 45, this.mode === 'ambient' ? 45 : 100); }
+      const cap = this.mode === 'ambient' ? 16 : 22;
+      if (this.spawnT <= 0) {
+        this.spawnT = 1.6;
+        const fill = this.meadowFill();
+        if (fill || this.animals.filter(a => a.state !== 'stunned').length < cap) this.spawnSolo(this.mode === 'ambient' ? 15 : 45, this.mode === 'ambient' ? 45 : 100, fill);
+      }
       // despawn far animals
       if (this.mode === 'solo') for (const a of this.animals) if (a.state !== 'stunned' && a.pos.distanceTo(this.player.pos) > 150) this.removeAnimal(a, true);
       this.animals = this.animals.filter(a => !a.removed);
